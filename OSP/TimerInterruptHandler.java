@@ -4,6 +4,13 @@ import osp.IFLModules.*;
 import osp.Utilities.*;
 import osp.Hardware.*;
 
+/**
+   TimerInterruptHandler.java
+   Connor Leonhardt
+   connor.leonhardt@gmail.com
+   February 21, 2012
+**/
+
 /**    
        The timer interrupt handler.  This class is called upon to
        handle timer interrupts.
@@ -20,7 +27,7 @@ public class TimerInterruptHandler extends IflTimerInterruptHandler
     */
     public void do_handleInterrupt()
     {
-        // your code goes here
+        ThreadCB.dispatch();
 
     }
 
