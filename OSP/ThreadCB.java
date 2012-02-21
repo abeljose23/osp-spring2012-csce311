@@ -11,25 +11,32 @@ import osp.Memory.*;
 import osp.Resources.*;
 
 /**
-   ThreadCB.java
-   Connor Leonhardt
-   connor.leonhardt@gmail.com
-   February 21, 2012
+ThreadCB.java
+Connor Leonhardt
+connor.leonhardt@gmail.com
+February 21, 2012
 **/
 
 /**
-   This class is responsible for actions related to threads, including
-   creating, killing, dispatching, resuming, and suspending threads.
+This class is responsible for actions related to threads, including
+creating, killing, dispatching, resuming, and suspending threads.
 
-   @OSPProject Threads
+@OSPProject Threads
 */
+
 public class ThreadCB extends IflThreadCB 
 {
-    //create readyQueue list
-    static GenericList readyQueue;
-
-    /**
-       The thread constructor. Must call 
+  public static final int READY_QUEUE = 0;
+  public static final int RUNNING_QUEUE = 1;
+  
+  public static final int SINGLE_PRIORITY = 0;
+  
+  //create generic lists
+  static GenericList readyQueue;
+  static GenericList runningQueue;
+  
+  /**
+    The thread constructor. Must call 
 
        	   super();
 
@@ -40,7 +47,8 @@ public class ThreadCB extends IflThreadCB
     public ThreadCB()
     {
         super(); //Constructor
-	readyQueue = new GenericList();
+        readyQueue = new GenericList();
+        runningQueue = new GenericList();
 
     }
 
@@ -74,35 +82,30 @@ public class ThreadCB extends IflThreadCB
     */
     static public ThreadCB do_create(TaskCB task)
     {
-	//check if task is null
-	//if true, call dispatcher and return null
-	if (task == null)
-	{
-		ThreadCB.dispatch();
-		return null;
-	}
-
 	//checks thread count against MaxThreadsPerTask
 	//if true, call dispatcher and return null
 	//else, creates thread
 	if (task.getThreadCount() >= MaxThreadsPerTask)
 	{
-		ThreadCB.dispatch();
+		dispatch();
 		return null;
 	}
 
 	//create new Thread Object
 	ThreadCB newThread = new ThreadCB();
-
+   
+//set task to thread
+	newThread.setTask(task);
+   
 	//set thread to task
 	if (task.addThread(newThread) == GlobalVariables.FAILURE)
-		return null;
-
-	//set task to thread
-	newThread.setTask(task);
+     {
+       dispatch();
+       return null;
+      }	
 
 	//set priority
-	newThread.setPriority(task.getPriority());
+	newThread.setPriority(SINGLE_PRIORITY);
 
 	//set status
 	newThread.setStatus(ThreadReady);
@@ -111,7 +114,7 @@ public class ThreadCB extends IflThreadCB
 	readyQueue.append(newThread);
 
 	//call dispatcher and return thread
-	ThreadCB.dispatch();
+	dispatch();
 	return newThread;
 	
     }
@@ -131,51 +134,30 @@ public class ThreadCB extends IflThreadCB
     */
     public void do_kill()
     {
-	//get task
-	TaskCB task = this.getTask();
-	
-	//get status of thread
-	switch(this.getStatus())
+       //get status of thread
+  if (this.getStatus() == ThreadReady)
 	{
-		//if status ThreadKill: break
-		case ThreadKill:
-			break;
-
-		//if status ThreadReady: remove from readyQueue
-		case ThreadReady:
-			readyQueue.remove(this);
-			break;
-
-		//if status ThreadRunning: preempt
-		case ThreadRunning:
-			MMU.getPTBR().getTask().setCurrentThread(null);
-			MMU.setPTBR(null);
-			break;
-
-		//loop through device table to purge any IORB associated with this thread
-		default://ThreadWaiting at any level
-			for (int i=0; i < Device.getTableSize(); i++)
-				Device.get(i).cancelPendingIO(this);
-			break;
-	}
+     readyQueue.remove(this);
+      }
+      
+  for (int = 0; i < Device.getTableSize(); i++)
+    Device.get(i).cancelPendingIO(this);
+    
+    //release all resources
+    ResourceCB.giveupResources(this);
 
 	//set status to ThreadKill
 	this.setStatus(ThreadKill);
 
 	//remove task from thread
-	task.removeThread(this);
-
-	//release all resources
-	ResourceCB.giveupResources(this);
-
-	//call dispatch
-	ThreadCB.dispatch();
+	this.getTask().removeThread(this);
 
 	//check if task has any threads left. if not, kill task
-	if (task.getThreadCount() == 0)
-		task.kill();
+	if (this.getTask().getThreadCount() == 0)
+		this.getTask().kill();
 
-    }
+  dispatch();
+ }
 
     /** Suspends the thread that is currenly on the processor on the 
         specified event. 
@@ -195,30 +177,22 @@ public class ThreadCB extends IflThreadCB
     */
     public void do_suspend(Event event)
     {
-        //get thread status
-	switch(this.getStatus())
-	{
-		case ThreadKill:
-		case ThreadReady:
-			return;
+        //remove thread from readyQueue
+        if (readyQueue.contains(this)) {
+                readyQueue.remove(this);
+        }
+        
+        //set status        
+        if (this.getStatus() == ThreadRunning) {
+                this.setStatus(ThreadWaiting);
+        }
+        else {
+                this.setStatus(this.getStatus()+1);
+        }
+        
+        event.addThread(this);
+        dispatch();
 
-		//if running, suspend it
-		case ThreadRunning:
-			event.addThread(MMU.getPTBR().getTask().getCurrentThread());
-			MMU.getPTBR().getTask().getCurrentThread().setStatus(ThreadWaiting);
-			MMU.getPTBR().getTask().setCurrentThread(null);
-			MMU.setPTBR(null);
-			break;
-
-		default://thread waiting
-			event.removeThread(this);
-			this.setStatus(this.getStatus() + 1);
-			event.addThread(this);
-			break;
-	}
-
-	//call dispatcher
-	ThreadCB.dispatch();
 
     }
 
