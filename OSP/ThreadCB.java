@@ -11,32 +11,31 @@ import osp.Memory.*;
 import osp.Resources.*;
 
 /**
-ThreadCB.java
-Connor Leonhardt
-connor.leonhardt@gmail.com
-February 21, 2012
+   ThreadCB.java
+   Connor Leonhardt
+   connor.leonhardt@gmail.com
+   February 21, 2012
 **/
 
 /**
-This class is responsible for actions related to threads, including
-creating, killing, dispatching, resuming, and suspending threads.
+   This class is responsible for actions related to threads, including
+   creating, killing, dispatching, resuming, and suspending threads.
 
-@OSPProject Threads
+   @OSPProject Threads
 */
-
 public class ThreadCB extends IflThreadCB 
 {
-  public static final int READY_QUEUE = 0;
-  public static final int RUNNING_QUEUE = 1;
-  
-  public static final int SINGLE_PRIORITY = 0;
-  
-  //create generic lists
-  static GenericList readyQueue;
-  static GenericList runningQueue;
-  
-  /**
-    The thread constructor. Must call 
+	public static final int READY_QUEUE = 0;
+	public static final int RUNNING_QUEUE = 1;
+	
+	public static final int SINGLE_PRIORITY = 0;
+	
+    //create lists
+    static GenericList readyQueue;
+    static GenericList runningQueue;
+
+    /**
+       The thread constructor. Must call 
 
        	   super();
 
@@ -82,40 +81,36 @@ public class ThreadCB extends IflThreadCB
     */
     static public ThreadCB do_create(TaskCB task)
     {
-	//checks thread count against MaxThreadsPerTask
-	//if true, call dispatcher and return null
-	//else, creates thread
-	if (task.getThreadCount() >= MaxThreadsPerTask)
-	{
+    	//checks thread count against MaxThreadsPerTask
+    	//if true, call dispatcher and return null
+    	if (task.getThreadCount() >= MaxThreadsPerTask)
+    	{
+    		dispatch();
+    		return null;
+    	}
+
+		//create new Thread Object
+		ThreadCB newThread = new ThreadCB();
+		
+		//set task
+		newThread.setTask(task);
+		
+		//checks if thread can be added 
+		if (task.addThread(newThread) == GlobalVariables.FAILURE)
+			return null;
+	
+		//set priority
+		newThread.setPriority(SINGLE_PRIORITY);
+	
+		//set status
+		newThread.setStatus(ThreadReady);
+	
+		//append to readyQueue
+		readyQueue.append(newThread);
+	
+		//call dispatcher and return thread
 		dispatch();
-		return null;
-	}
-
-	//create new Thread Object
-	ThreadCB newThread = new ThreadCB();
-   
-//set task to thread
-	newThread.setTask(task);
-   
-	//set thread to task
-	if (task.addThread(newThread) == GlobalVariables.FAILURE)
-     {
-       dispatch();
-       return null;
-      }	
-
-	//set priority
-	newThread.setPriority(SINGLE_PRIORITY);
-
-	//set status
-	newThread.setStatus(ThreadReady);
-
-	//append to readyQueue
-	readyQueue.append(newThread);
-
-	//call dispatcher and return thread
-	dispatch();
-	return newThread;
+		return newThread;
 	
     }
 
@@ -134,30 +129,36 @@ public class ThreadCB extends IflThreadCB
     */
     public void do_kill()
     {
-       //get status of thread
-  if (this.getStatus() == ThreadReady)
-	{
-     readyQueue.remove(this);
-      }
-      
-  for (int = 0; i < Device.getTableSize(); i++)
-    Device.get(i).cancelPendingIO(this);
-    
-    //release all resources
-    ResourceCB.giveupResources(this);
+    	//remove thread from readyQueue
+    	if (this.getStatus() == ThreadReady)
+    	{
+    		readyQueue.remove(this);
+    	}
 
-	//set status to ThreadKill
-	this.setStatus(ThreadKill);
+    	for (int i = 0; i < Device.getTableSize(); i++)
+    	{
+    		Device.get(i).cancelPendingIO(this);
+    	}
 
-	//remove task from thread
-	this.getTask().removeThread(this);
+    	//release resources
+    	ResourceCB.giveupResources(this);
 
-	//check if task has any threads left. if not, kill task
-	if (this.getTask().getThreadCount() == 0)
-		this.getTask().kill();
+    	//set status
+    	this.setStatus(ThreadKill);
 
-  dispatch();
- }
+    	//remove thread from task
+    	this.getTask().removeThread(this);
+
+    	//kill task if thread count is 0
+    	if (this.getTask().getThreadCount() == 0)
+    	{
+    		this.getTask().kill();
+    	}
+
+    	//call dispatcher
+    	dispatch();
+
+    }
 
     /** Suspends the thread that is currenly on the processor on the 
         specified event. 
@@ -178,22 +179,23 @@ public class ThreadCB extends IflThreadCB
     public void do_suspend(Event event)
     {
         //remove thread from readyQueue
-        if (readyQueue.contains(this)) {
-                readyQueue.remove(this);
+    	if (readyQueue.contains(this))
+        {
+        	readyQueue.remove(this);
         }
         
-        //set status        
-        if (this.getStatus() == ThreadRunning) {
-                this.setStatus(ThreadWaiting);
-        }
-        else {
-                this.setStatus(this.getStatus()+1);
-        }
-        
-        event.addThread(this);
-        dispatch();
-
-
+        //change status
+    	if (this.getStatus() == ThreadRunning)
+    	{
+    		this.setStatus(ThreadWaiting);
+    	}
+    	else
+    	{
+    		this.setStatus(this.getStatus() + 1);
+    	}
+    	
+    	event.addThread(this);
+    	dispatch();
     }
 
     /** Resumes the thread.
@@ -207,23 +209,19 @@ public class ThreadCB extends IflThreadCB
     */
     public void do_resume()
     {
-        switch(this.getStatus())
-	{
-		case ThreadKill:
-		case ThreadReady:
-			return;
-
-		case ThreadWaiting:
-			this.setStatus(ThreadReady);
-			readyQueue.append(this);
-			break;
-
-		default:
-			this.setStatus(this.getStatus()-1);
-			break;
-	}
-
-	ThreadCB.dispatch();
+    	//change status
+        if (this.getStatus() == ThreadWaiting)
+        {
+        	this.setStatus(ThreadReady);
+        	readyQueue.append(this);
+        }
+        else
+        {
+        	this.setStatus(this.getStatus() + 1);
+        }
+        
+        //call dispatcher
+        dispatch();
 
     }
 
@@ -242,41 +240,46 @@ public class ThreadCB extends IflThreadCB
     */
     public static int do_dispatch()
     {
-	//get the first in queue
-	ThreadCB thread = (ThreadCB) readyQueue.removeHead();
+    	//create old task page table
+    	PageTable old_taskPTBR = MMU.getPTBR();
+    	
+    	//return FAILURE if old table is null
+		if (old_taskPTBR == null)
+			return FAILURE;
+		
+		//make current thread in old table the current old thread
+    	ThreadCB old_thread = old_taskPTBR.getTask().getCurrentThread();
+    	
+    	//set table to null
+       	MMU.setPTBR(null);
+       	
+       	//set current thread on old table to null
+    	old_taskPTBR.getTask().setCurrentThread(null);
+    	
+    	//create a new thread and page table
+    	ThreadCB new_thread;
+    	PageTable new_taskPTBR;
+    	
+    	//if readyQueue is empty, make new thread and table equal to old thread and table
+    	if (readyQueue.isEmpty())
+    	{
+    		new_thread = old_thread;
+    		new_taskPTBR = old_taskPTBR;
+    	}
+    	else
+    	{
+    		new_thread = (ThreadCB) readyQueue.removeHead();
+    		new_taskPTBR = MMU.getPTBR();
+    		
+        	if (new_taskPTBR == null)
+        		return FAILURE;
+    	}
+    	
+    	MMU.setPTBR(new_taskPTBR.getTask().getPageTable());
+    	new_taskPTBR.getTask().setCurrentThread(new_thread);
+    	
+    	return SUCCESS;
 
-	//Context Switching
-	if(MMU.getPTBR() != null && thread != null)
-	{
-		//thread running, preempt
-		readyQueue.append(MMU.getPTBR().getTask().getCurrentThread());
-		MMU.getPTBR().getTask().getCurrentThread().setStatus(ThreadReady);
-		MMU.getPTBR().getTask().setCurrentThread(null);
-		MMU.setPTBR(null);
-
-		//dispatch
-		thread.setStatus(ThreadRunning);
-		MMU.setPTBR(thread.getTask().getPageTable());
-		thread.getTask().setCurrentThread(thread);
-	}
-	else if(MMU.getPTBR() != null && thread == null)
-	{
-		//current thread continues on cpu
-		return SUCCESS;
-	}
-	else if(MMU.getPTBR() == null && thread != null)
-	{
-		//put thread on cpu
-		thread.setStatus(ThreadRunning);
-		MMU.setPTBR(thread.getTask().getPageTable());
-		thread.getTask().setCurrentThread(thread);
-	}
-	else if(MMU.getPTBR() == null && thread == null)
-	{
-		return FAILURE;
-	}
-
-	return FAILURE;
 
     }
 
@@ -305,20 +308,6 @@ public class ThreadCB extends IflThreadCB
     {
         // your code goes here
 
-    }
-
-    public static void removeKilled()
-    {
-	Enumeration ready = readyQueue.forwardIterator();
-	ThreadCB thread;
-
-	while(ready.hasMoreElements())
-	{
-		thread = (ThreadCB) ready.nextElement();
-
-		if(thread.getStatus() == ThreadKill)
-			readyQueue.remove(thread);
-	}
     }
 
     /*
