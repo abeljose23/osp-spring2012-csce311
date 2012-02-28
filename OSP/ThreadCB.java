@@ -1,6 +1,7 @@
 package osp.Threads;
 import java.util.Vector;
 import java.util.Enumeration;
+import java.util.Array;
 import osp.Utilities.*;
 import osp.IFLModules.*;
 import osp.Tasks.*;
@@ -9,6 +10,13 @@ import osp.Hardware.*;
 import osp.Devices.*;
 import osp.Memory.*;
 import osp.Resources.*;
+
+/*
+TimerInterruptHandler.java
+Connor Leonhardt
+connor.leonhardt@gmail.com
+February 28, 2012
+*/
 
 /*
 	This class is responsible for actions related to threads, including
@@ -20,34 +28,38 @@ import osp.Resources.*;
 public class ThreadCB extends IflThreadCB
 {
 	private static GenericList readyQueue;
-   private static ArrayList<GenericList> active;
-   private static ArrayList<GenericList> expired;
-	
+	private static GenericList[] active;
+	private static GenericList[] expired;
+
 	/*
-		The thread constructor. Must call
+	The thread constructor. Must call
 
-		super();
+	super();
 
-		as its first statement.
+	as its first statement.
 
-		@OSPProject Threads
+	@OSPProject Threads
 	*/
-	
+
 	public ThreadCB()
 	{
 		super();
 	}
 
 	/*
-		This method will be called once at the beginning of the
-		simulation. The student can set up static variables here.
+	This method 
+	/*
+	This method will be called once at the beginning of the
+	simulation. The student can set up static variables here.
 
 	@OSPProject Threads
 	*/
 
 	public static void init()
 	{
-     readyQueue = new GenericList();
+		readyQueue = new GenericList();
+		active = new GenericList[5];
+		expired = new GenericList[5];
 	}
 
 	/*
@@ -85,7 +97,7 @@ public class ThreadCB extends IflThreadCB
 		ThreadCB newThread = new ThreadCB();
 
 		// Setup the new thread.
-		newThread.setPriority(task.getPriority());
+		newThread.setPriority(2);
 		newThread.setStatus(ThreadReady);
 		newThread.setTask(task);
 
@@ -97,8 +109,7 @@ public class ThreadCB extends IflThreadCB
 		}
 
 		readyQueue.append(newThread);
-
-
+		expired[2].append(newThread);
 		ThreadCB.dispatch();
 		return newThread;
 	}
@@ -123,8 +134,7 @@ public class ThreadCB extends IflThreadCB
 		TaskCB task = getTask();
 		switch (getStatus())
 		{
-			case ThreadReady:
-				// Delete thread from ready queue.
+			case ThreadReady:// Delete thread from ready queue.
 				readyQueue.remove(this);
 			break;
 
@@ -227,6 +237,7 @@ public class ThreadCB extends IflThreadCB
 
 	public void do_resume()
 	{
+		int prior = this.getPriority();
 		if(getStatus() < ThreadWaiting)
 			return;
 
@@ -238,7 +249,21 @@ public class ThreadCB extends IflThreadCB
 
 		// Put the thread on the ready queue, if appropriate
 		if (getStatus() == ThreadReady)
+		{
+			//is the priority anything but 0?
+			if (prior != 0)
+			{
+				//decrement the priority
+				//thus raising the priority value
+				this.setPriority(prior--);
+			}
+
+			//otherwise, keep the same
+			//either way, append to expired
+			expired[prior].append(this);
+
 			readyQueue.append(this);
+		}
 
 		ThreadCB.dispatch();
 	}
@@ -259,6 +284,7 @@ public class ThreadCB extends IflThreadCB
 
 	public static int do_dispatch()
 	{
+		int prior = this.getPriority();
 		ThreadCB threadToDispatch=null;
 		ThreadCB runningThread=null;
 		TaskCB runningTask=null;
@@ -271,6 +297,20 @@ public class ThreadCB extends IflThreadCB
 		// reschedule it.
 		if(runningThread != null)
 		{
+			//has the thread exceeded its quantum?
+			if (HTimer.get() < 1)
+			{
+				//increment the priority
+				//thus lowering the priority value
+				prior++;
+				this.setPriority(prior);
+			}
+
+			//otherwise, keep the same
+
+			//either way, append to expired
+			expired[prior].append(this);
+
 			runningTask.setCurrentThread(null);
 			MMU.setPTBR(null);
 			runningThread.setStatus(ThreadReady);
@@ -279,7 +319,7 @@ public class ThreadCB extends IflThreadCB
 
 		// Select thread from ready queue.
 		threadToDispatch = (ThreadCB)readyQueue.removeHead();
-		
+
 		if(threadToDispatch == null)
 		{
 			MMU.setPTBR(null);
@@ -292,9 +332,20 @@ public class ThreadCB extends IflThreadCB
 		// set thread to dispatch as the current thread of its task
 		threadToDispatch.getTask().setCurrentThread(threadToDispatch);
 
-		// Set thread's status.
+		// Set thread's status
 		threadToDispatch.setStatus(ThreadRunning);
-		HTimer.set(20);
+
+		//set the timer based on priority
+		switch(prior)
+		{
+			case 0:
+			case 1:
+			case 2:
+				HTimer.set(20);
+			case 3:
+			case 4:
+				HTimer.set(5);
+		}
 		return SUCCESS;
 	}
 
@@ -323,6 +374,6 @@ public class ThreadCB extends IflThreadCB
 
 	public static void atWarning()
 	{
-		// any code 
+		// any code
 	}
 }
