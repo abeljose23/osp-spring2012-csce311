@@ -10,66 +10,51 @@ import osp.Devices.*;
 import osp.Memory.*;
 import osp.Resources.*;
 
-/**
-   ThreadCB.java
-   Connor Leonhardt
-   connor.leonhardt@gmail.com
-   February 21, 2012
-**/
+/*
+	This class is responsible for actions related to threads, including
+	creating, killing, dispatching, resuming, and suspending threads.
 
-/**
-   This class is responsible for actions related to threads, including
-   creating, killing, dispatching, resuming, and suspending threads.
-
-   @OSPProject Threads
+	@OSPProject Threads
 */
-public class ThreadCB extends IflThreadCB 
+
+public class ThreadCB extends IflThreadCB
 {
-	public static final int READY_QUEUE = 0;
-	public static final int RUNNING_QUEUE = 1;
+	private static GenericList readyQueue;
 	
-	public static final int SINGLE_PRIORITY = 0;
+	/*
+		The thread constructor. Must call
+
+		super();
+
+		as its first statement.
+
+		@OSPProject Threads
+	*/
 	
-    //create lists
-    static GenericList readyQueue;
-    static GenericList runningQueue;
+	public ThreadCB()
+	{
+		super();
+	}
 
-    /**
-       The thread constructor. Must call 
+	/*
+		This method will be called once at the beginning of the
+		simulation. The student can set up static variables here.
 
-       	   super();
+	@OSPProject Threads
+	*/
 
-       as its first statement.
+	public static void init()
+	{
+	readyQueue = new GenericList();
+	}
 
-       @OSPProject Threads
-    */
-    public ThreadCB()
-    {
-        super(); //Constructor
-        readyQueue = new GenericList();
-        runningQueue = new GenericList();
-
-    }
-
-    /**
-       This method will be called once at the beginning of the
-       simulation. The student can set up static variables here.
-       
-       @OSPProject Threads
-    */
-    public static void init()
-    {
-        // your code goes here
-    }
-
-    /** 
-        Sets up a new thread and adds it to the given task. 
-        The method must set the ready status 
-        and attempt to add thread to task. If the latter fails 
-        because there are already too many threads in this task, 
-        so does this method, otherwise, the thread is appended 
-        to the ready queue and dispatch() is called.
-
+	/*
+	Sets up a new thread and adds it to the given task.
+	The method must set the ready status
+	and attempt to add thread to task. If the latter fails
+	because there are already too many threads in this task,
+	so does this method, otherwise, the thread is appended
+	to the ready queue and dispatch() is called.
 	The priority of the thread can be set using the getPriority/setPriority
 	methods. However, OSP itself doesn't care what the actual value of
 	the priority is. These methods are just provided in case priority
@@ -77,245 +62,265 @@ public class ThreadCB extends IflThreadCB
 
 	@return thread or null
 
-        @OSPProject Threads
-    */
-    static public ThreadCB do_create(TaskCB task)
-    {
-    	//checks thread count against MaxThreadsPerTask
-    	//if true, call dispatcher and return null
-    	if (task.getThreadCount() >= MaxThreadsPerTask)
-    	{
-    		dispatch();
-    		return null;
-    	}
+	@OSPProject Threads
+	*/
 
-		//create new Thread Object
-		ThreadCB newThread = new ThreadCB();
-		
-		//set task
-		newThread.setTask(task);
-		
-		//checks if thread can be added 
-		if (task.addThread(newThread) == GlobalVariables.FAILURE)
+	static public ThreadCB do_create(TaskCB task)
+	{
+		if (task == null)
+		{
+			ThreadCB.dispatch();
 			return null;
-	
-		//set priority
-		newThread.setPriority(SINGLE_PRIORITY);
-	
-		//set status
-		newThread.setStatus(ThreadReady);
-	
-		//append to readyQueue
-		readyQueue.append(newThread);
-	
-		//call dispatcher and return thread
-		dispatch();
-		return newThread;
-	
-    }
+		}
 
-    /** 
-	Kills the specified thread. 
+		// Can we add a new thread to this task?
+		if (task.getThreadCount() >= MaxThreadsPerTask)
+		{
+			ThreadCB.dispatch();
+			return null;
+		}
+
+		ThreadCB newThread = new ThreadCB();
+
+		// Setup the new thread.
+		newThread.setPriority(task.getPriority());
+		newThread.setStatus(ThreadReady);
+		newThread.setTask(task);
+
+		// Add the new thread to the task.
+		if (task.addThread(newThread) != SUCCESS)
+		{
+			ThreadCB.dispatch();
+			return null;
+		}
+
+		readyQueue.append(newThread);
+
+
+		ThreadCB.dispatch();
+		return newThread;
+	}
+
+	/*
+	Kills the specified thread.
 
 	The status must be set to ThreadKill, the thread must be
 	removed from the task's list of threads and its pending IORBs
 	must be purged from all device queues.
-        
-	If some thread was on the ready queue, it must removed, if the 
-	thread was running, the processor becomes idle, and dispatch() 
+
+	If some thread was on the ready queue, it must removed, if the
+	thread was running, the processor becomes idle, and dispatch()
 	must be called to resume a waiting thread.
-	
+
 	@OSPProject Threads
-    */
-    public void do_kill()
-    {
-    	//remove thread from readyQueue
-    	if (this.getStatus() == ThreadReady)
-    	{
-    		readyQueue.remove(this);
-    	}
+	*/
 
-    	for (int i = 0; i < Device.getTableSize(); i++)
-    	{
-    		Device.get(i).cancelPendingIO(this);
-    	}
+	public void do_kill()
+	{
 
-    	//release resources
-    	ResourceCB.giveupResources(this);
+		TaskCB task = getTask();
+		switch (getStatus())
+		{
+			case ThreadReady:
+				// Delete thread from ready queue.
+				readyQueue.remove(this);
+			break;
 
-    	//set status
-    	this.setStatus(ThreadKill);
+			case ThreadRunning:// Remove (preempt) thread from CPU.
+				if(this == MMU.getPTBR().getTask().getCurrentThread())
+				{
+					MMU.getPTBR().getTask().setCurrentThread(null);
+				}
+				break;
 
-    	//remove thread from task
-    	this.getTask().removeThread(this);
+			default:
+		}
 
-    	//kill task if thread count is 0
-    	if (this.getTask().getThreadCount() == 0)
-    	{
-    		this.getTask().kill();
-    	}
+		// Remove thread from task.
+		if(task.removeThread(this) != SUCCESS)
+			return;
 
-    	//call dispatcher
-    	dispatch();
 
-    }
+		// Change thread's status.
+		setStatus(ThreadKill);
 
-    /** Suspends the thread that is currenly on the processor on the 
-        specified event. 
+		// We have only one I/O per thread, so we should just
+		// cancel it for the corresponding device.
+		for(int i = 0; i < Device.getTableSize(); i++)
+			Device.get(i).cancelPendingIO(this);
 
-        Note that the thread being suspended doesn't need to be
-        running. It can also be waiting for completion of a pagefault
-        and be suspended on the IORB that is bringing the page in.
-	
+
+		// release all resources owned by the thread
+		ResourceCB.giveupResources(this);
+
+		ThreadCB.dispatch();
+
+		if (this.getTask().getThreadCount()==0)
+			this.getTask().kill();
+	}
+
+	/*
+	Suspends the thread that is currenly on the processor on the
+	specified event.
+
+	Note that the thread being suspended doesn't need to be
+	running. It can also be waiting for completion of a pagefault
+	and be suspended on the IORB that is bringing the page in.
+
 	Thread's status must be changed to ThreadWaiting or higher,
-        the processor set to idle, the thread must be in the right
-        waiting queue, and dispatch() must be called to give CPU
-        control to some other thread.
+	the processor set to idle, the thread must be in the right
+	waiting queue, and dispatch() must be called to give CPU
+	control to some other thread.
 
 	@param event - event on which to suspend this thread.
 
-        @OSPProject Threads
-    */
-    public void do_suspend(Event event)
-    {
-        //remove thread from readyQueue
-    	if (readyQueue.contains(this))
-        {
-        	readyQueue.remove(this);
-        }
-        
-        //change status
-    	if (this.getStatus() == ThreadRunning)
-    	{
-    		this.setStatus(ThreadWaiting);
-    	}
-    	else
-    	{
-    		this.setStatus(this.getStatus() + 1);
-    	}
-    	
-    	event.addThread(this);
-    	dispatch();
-    }
-
-    /** Resumes the thread.
-        
-	Only a thread with the status ThreadWaiting or higher
-	can be resumed.  The status must be set to ThreadReady or
-	decremented, respectively.
-	A ready thread should be placed on the ready queue.
-	
 	@OSPProject Threads
-    */
-    public void do_resume()
-    {
-    	//change status
-        if (this.getStatus() == ThreadWaiting)
-        {
-        	this.setStatus(ThreadReady);
-        	readyQueue.append(this);
-        }
-        else
-        {
-        	this.setStatus(this.getStatus() + 1);
-        }
-        
-        //call dispatcher
-        dispatch();
+	*/
 
-    }
+	public void do_suspend(Event event)
+	{
+		int oldStatus = this.getStatus();
 
-    /** 
-        Selects a thread from the run queue and dispatches it. 
+		// Note: "this" might not be the running thread, because we
+		// might be suspending a thread that is in the middle of a system call
+		// (e.g., a pagefaulted thread after swapout or a thread that
+		// is ready for I/O after a pagefault caused by lock()
 
-        If there is just one theread ready to run, reschedule the thread 
-        currently on the processor.
+		ThreadCB runningThread=null;
+		TaskCB runningTask=null;
+		try {
+			runningTask = MMU.getPTBR().getTask();
+			runningThread = runningTask.getCurrentThread();
+		} catch(NullPointerException e){}
 
-        In addition to setting the correct thread status it must
-        update the PTBR.
-	
+		// Note: we may be suspending not the running thread, so
+		// we must check if "this" equals runningThread
+		if (this == runningThread)
+			this.getTask().setCurrentThread(null);
+
+		// Set thread's status.
+		if (this.getStatus() == ThreadRunning)
+			setStatus(ThreadWaiting);
+		else if (this.getStatus() >= ThreadWaiting)
+			setStatus(this.getStatus()+1);
+
+		readyQueue.remove(this);
+		event.addThread(this);
+
+		// Dispatch a new thread.
+		ThreadCB.dispatch();
+	}
+
+	/*
+	Resumes the thread.
+
+	Only a thread with the status ThreadWaiting or higher
+	can be resumed. The status must be set to ThreadReady or
+	decremented, respectively.
+
+	A ready thread should be placed on the ready queue.
+
+	@OSPProject Threads
+	*/
+
+	public void do_resume()
+	{
+		if(getStatus() < ThreadWaiting)
+			return;
+
+		// Set thread's status.
+		if (getStatus() == ThreadWaiting)
+			setStatus(ThreadReady);
+		else if (getStatus() > ThreadWaiting)
+			setStatus(getStatus()-1);
+
+		// Put the thread on the ready queue, if appropriate
+		if (getStatus() == ThreadReady)
+			readyQueue.append(this);
+
+		ThreadCB.dispatch();
+	}
+
+	/*
+	Selects a thread from the run queue and dispatches it.
+
+	If there is just one thread ready to run, reschedule the thread
+	currently on the processor.
+
+	In addition to setting the correct thread status it must
+	update the PTBR.
+
 	@return SUCCESS or FAILURE
 
-        @OSPProject Threads
-    */
-    public static int do_dispatch()
-    {
-    	//create old task page table
-    	PageTable old_taskPTBR = MMU.getPTBR();
-    	
-    	//return FAILURE if old table is null
-		if (old_taskPTBR == null)
-			return FAILURE;
+	@OSPProject Threads
+	*/
+
+	public static int do_dispatch()
+	{
+		ThreadCB threadToDispatch=null;
+		ThreadCB runningThread=null;
+		TaskCB runningTask=null;
+		try {
+			runningTask = MMU.getPTBR().getTask();
+			runningThread = runningTask.getCurrentThread();
+		} catch(NullPointerException e) {}
+
+		// If necessary, remove current thread from processor and
+		// reschedule it.
+		if(runningThread != null)
+		{
+			runningTask.setCurrentThread(null);
+			MMU.setPTBR(null);
+			runningThread.setStatus(ThreadReady);
+			readyQueue.append(runningThread);
+		}
+
+		// Select thread from ready queue.
+		threadToDispatch = (ThreadCB)readyQueue.removeHead();
 		
-		//make current thread in old table the current old thread
-    	ThreadCB old_thread = old_taskPTBR.getTask().getCurrentThread();
-    	
-    	//set table to null
-       	MMU.setPTBR(null);
-       	
-       	//set current thread on old table to null
-    	old_taskPTBR.getTask().setCurrentThread(null);
-    	
-    	//create a new thread and page table
-    	ThreadCB new_thread;
-    	PageTable new_taskPTBR;
-    	
-    	//if readyQueue is empty, make new thread and table equal to old thread and table
-    	if (readyQueue.isEmpty())
-    	{
-    		new_thread = old_thread;
-    		new_taskPTBR = old_taskPTBR;
-    	}
-    	else
-    	{
-    		new_thread = (ThreadCB) readyQueue.removeHead();
-    		new_taskPTBR = MMU.getPTBR();
-    		
-        	if (new_taskPTBR == null)
-        		return FAILURE;
-    	}
-    	
-    	MMU.setPTBR(new_taskPTBR.getTask().getPageTable());
-    	new_taskPTBR.getTask().setCurrentThread(new_thread);
-    	
-    	return SUCCESS;
+		if(threadToDispatch == null)
+		{
+			MMU.setPTBR(null);
+			return FAILURE;
+		}
 
+		// Put the thread on the processor.
+		MMU.setPTBR(threadToDispatch.getTask().getPageTable());
 
-    }
+		// set thread to dispatch as the current thread of its task
+		threadToDispatch.getTask().setCurrentThread(threadToDispatch);
 
-    /**
-       Called by OSP after printing an error message. The student can
-       insert code here to print various tables and data structures in
-       their state just after the error happened.  The body can be
-       left empty, if this feature is not used.
+		// Set thread's status.
+		threadToDispatch.setStatus(ThreadRunning);
+		HTimer.set(20);
+		return SUCCESS;
+	}
 
-       @OSPProject Threads
-    */
-    public static void atError()
-    {
-        // your code goes here
+	/*
+	Called by OSP after printing an error message. The student can
+	insert code here to print various tables and data structures in
+	their state just after the error happened. The body can be
+	left empty, if this feature is not used.
 
-    }
+	@OSPProject Threads
+	*/
 
-    /** Called by OSP after printing a warning message. The student
-        can insert code here to print various tables and data
-        structures in their state just after the warning happened.
-        The body can be left empty, if this feature is not used.
-       
-        @OSPProject Threads
-     */
-    public static void atWarning()
-    {
-        // your code goes here
+	public static void atError()
+	{
+		// any code
+	}
 
-    }
+	/*
+	Called by OSP after printing a warning message. The student
+	can insert code here to print various tables and data
+	structures in their state just after the warning happened.
+	The body can be left empty, if this feature is not used.
 
-    /*
-       Feel free to add methods/fields to improve the readability of your code
-    */
+	@OSPProject Threads
+	*/
 
+	public static void atWarning()
+	{
+		// any code 
+	}
 }
-
-/*
-      Feel free to add local classes to improve the readability of your code
-*/
